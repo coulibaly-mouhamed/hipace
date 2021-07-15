@@ -45,7 +45,90 @@ Fields::AllocData (
                                          geom[lev]))  );
     }
 }
+void
+Fields::InterpolateGuardCells (amrex::Vector<amrex::Geometry> const& geom, const int lev,
+                               std::string component)
+{
+    // To compute transverse derivative we have to interpolate guard cells which are equal to zeros.
+    // This is done by the following procedure:
+    HIPACE_PROFILE("Fields::InterpolateGuardCells()");
+    if (lev == 0) return; // only interpolate boundaries to lev 1
+    using namespace amrex::literals;
+    const auto plo = geom[lev].ProbLoArray();
+    const auto dx = geom[lev].CellSizeArray();
+    const auto plo_coarse = geom[lev-1].ProbLoArray();
+    const auto dx_coarse = geom[lev-1].CellSizeArray();
+    const amrex::IntVect refinement_ratio = m_ref_ratio;
 
+    amrex::MultiFab lhs_coarse(getSlices(lev-1, WhichSlice::This), amrex::make_alias,
+                               Comps[WhichSlice::This][component], 1);
+    for (amrex::MFIter mfi( m_poisson_solver[lev]->StagingArea(),false); mfi.isValid(); ++mfi)
+    {
+        const amrex::Box & bx = mfi.tilebox();
+        // Get the small end of the Box
+        const amrex::IntVect& small = bx.smallEnd();
+        const auto nx_fine_low = small[0];
+        const auto ny_fine_low = small[1];
+        // Get the big end of the Box
+        const amrex::IntVect& big = bx.bigEnd();
+        const auto nx_fine_high = big[0];
+        const auto ny_fine_high = big[1];
+        amrex::Array4<amrex::Real>  data_array = m_poisson_solver[lev]->StagingArea().array(mfi);
+        amrex::Array4<amrex::Real>  data_array_coarse = lhs_coarse.array(mfi);
+        // Loop over the valid indices on the fine grid and bilinearly interpolate the boundary
+        // value from the coarse grid to the outer grid points on the fine grid
+        amrex::ParallelFor(
+            bx,
+            [=] AMREX_GPU_DEVICE(int i, int j , int k) noexcept
+            {
+                if (i==nx_fine_low || i== nx_fine_high || j==ny_fine_low || j == ny_fine_high) {
+                    // Compute coordinate on fine grid
+                    const amrex::Real x = plo[0] + (i+0.5_rt)*dx[0];
+                    const amrex::Real y = plo[1] + (j+0.5_rt)*dx[1];
+                    // index left (in x) and below (in y) of the compute coordinate on coarse grid
+                    const int idx_left = i / refinement_ratio[0];
+                    const int idx_down = j / refinement_ratio[1];
+                    const amrex::Real x_left = plo_coarse[0]+(idx_left +0.5_rt)*dx_coarse[0];
+                    const amrex::Real y_down = plo_coarse[1]+(idx_down +0.5_rt)*dx_coarse[1];
+                    // Bilinear interpolation from coarse to fine grid
+                    const amrex::Real val_left_down  = data_array_coarse(idx_left  , idx_down  , 0);
+                    const amrex::Real val_left_up    = data_array_coarse(idx_left  , idx_down+1, 0);
+                    const amrex::Real val_right_up   = data_array_coarse(idx_left+1, idx_down+1, 0);
+                    const amrex::Real val_right_down = data_array_coarse(idx_left+1, idx_down  , 0);
+                    const amrex::Real df_x = val_right_down - val_left_down;
+                    const amrex::Real df_y = val_left_up - val_left_down;
+                    const amrex::Real df_xy = val_left_down + val_right_up - val_right_down
+                                             -val_left_up;
+
+                    const amrex::Real boundary_value =
+                        df_x*(x-x_left)/dx_coarse[0] + df_y*(y-y_down)/dx_coarse[1] +
+                        df_xy*(x-x_left)*(y-y_down)/(dx_coarse[0]*dx_coarse[1]) + val_left_down;
+
+                    if (i==nx_fine_low) {
+                        //amrex::Print()<<"value Before "<<data_array(i-1,j,k)<<"\n";
+                        data_array(i-1,j,k) += boundary_value;
+                        //amrex::Print()<<"value "<<data_array(i-1,j,k)<<"\n";
+                    }
+                    if(i==nx_fine_high){
+                        //amrex::Print()<<"value Before "<<data_array(i+1,j,k)<<"\n";
+                        data_array(i+1,j,k) += boundary_value;
+                        //amrex::Print()<<"value "<<data_array(i+1,j,k)<<"\n";
+                    }
+                    if (j==ny_fine_low) {
+                        //amrex::Print()<<"value Before "<<data_array(i,j-1,k)<<"\n";
+                        data_array(i,j-1,k) += boundary_value;
+                        //amrex::Print()<<"value "<<data_array(i,j-1,k)<<"\n";
+                    }
+                    if(j==ny_fine_high){
+                        //amrex::Print()<<"value Before "<<data_array(i,j+1,k)<<"\n";
+                        data_array(i,j+1,k) += boundary_value;
+                        //amrex::Print()<<"value "<<data_array(i,j+1,k)<<"\n";
+                    }
+                //amrex::Print()<<"Done\n";
+                }
+            });
+    }
+}
 void
 Fields::TransverseDerivative (const amrex::MultiFab& src, amrex::MultiFab& dst, const int direction,
                               const amrex::Real dx, const amrex::Real mult_coeff,
@@ -96,6 +179,7 @@ Fields::TransverseDerivative (const amrex::MultiFab& src, amrex::MultiFab& dst, 
             );
     }
 }
+
 
 void
 Fields::LongitudinalDerivative (const amrex::MultiFab& src1, const amrex::MultiFab& src2,

@@ -131,7 +131,14 @@ public:
      * \param[in] which_slice current slice, either WhichSlice::This or WhichSlice::Next.
      */
     void AddBeamCurrents (const int lev, const int which_slice);
-
+    /** \brief Interpolate values at boundaries from coarse grid to the fine grid
+     *
+     * \param[in] geom Geometry
+     * \param[in] lev current level
+     * \param[in] component which can be Psi, Ez, By, Bx ...
+     */
+    void InterpolateGuardCells (amrex::Vector<amrex::Geometry> const& geom, const int lev,
+                                std::string component);
     /** Compute transverse derivative of 1 slice*/
     void TransverseDerivative (const amrex::MultiFab& src, amrex::MultiFab& dst,
                                const int direction, const amrex::Real dx,
