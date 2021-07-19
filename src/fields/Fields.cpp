@@ -45,6 +45,7 @@ Fields::AllocData (
                                          geom[lev]))  );
     }
 }
+
 void
 Fields::InterpolateGuardCells (amrex::Vector<amrex::Geometry> const& geom, const int lev,
                                std::string component)
@@ -81,51 +82,112 @@ Fields::InterpolateGuardCells (amrex::Vector<amrex::Geometry> const& geom, const
             bx,
             [=] AMREX_GPU_DEVICE(int i, int j , int k) noexcept
             {
-                if (i==nx_fine_low || i== nx_fine_high || j==ny_fine_low || j == ny_fine_high) {
+                if (i==nx_fine_low) {
                     // Compute coordinate on fine grid
-                    const amrex::Real x = plo[0] + (i+0.5_rt)*dx[0];
+                    const amrex::Real x = plo[0] + (i-1+0.5_rt)*dx[0];
                     const amrex::Real y = plo[1] + (j+0.5_rt)*dx[1];
                     // index left (in x) and below (in y) of the compute coordinate on coarse grid
-                    const int idx_left = i / refinement_ratio[0];
-                    const int idx_down = j / refinement_ratio[1];
+                    const int idx_left = i ;
+                    const int idx_down = j ;
                     const amrex::Real x_left = plo_coarse[0]+(idx_left +0.5_rt)*dx_coarse[0];
                     const amrex::Real y_down = plo_coarse[1]+(idx_down +0.5_rt)*dx_coarse[1];
                     // Bilinear interpolation from coarse to fine grid
-                    const amrex::Real val_left_down  = data_array_coarse(idx_left  , idx_down  , 0);
-                    const amrex::Real val_left_up    = data_array_coarse(idx_left  , idx_down+1, 0);
-                    const amrex::Real val_right_up   = data_array_coarse(idx_left+1, idx_down+1, 0);
-                    const amrex::Real val_right_down = data_array_coarse(idx_left+1, idx_down  , 0);
+                    const amrex::Real val_left_down  = data_array(idx_left  , idx_down-1  , 0);
+                    const amrex::Real val_left_up    = data_array(idx_left  , idx_down, 0);
+                    const amrex::Real val_right_up   = data_array(idx_left+1, idx_down, 0);
+                    const amrex::Real val_right_down = data_array(idx_left+1, idx_down-1  , 0);
                     const amrex::Real df_x = val_right_down - val_left_down;
                     const amrex::Real df_y = val_left_up - val_left_down;
                     const amrex::Real df_xy = val_left_down + val_right_up - val_right_down
-                                             -val_left_up;
-
+                                                -val_left_up;
                     const amrex::Real boundary_value =
-                        df_x*(x-x_left)/dx_coarse[0] + df_y*(y-y_down)/dx_coarse[1] +
-                        df_xy*(x-x_left)*(y-y_down)/(dx_coarse[0]*dx_coarse[1]) + val_left_down;
-
-                    if (i==nx_fine_low) {
-                        //amrex::Print()<<"value Before "<<data_array(i-1,j,k)<<"\n";
-                        data_array(i-1,j,k) += boundary_value;
-                        //amrex::Print()<<"value "<<data_array(i-1,j,k)<<"\n";
-                    }
-                    if(i==nx_fine_high){
-                        //amrex::Print()<<"value Before "<<data_array(i+1,j,k)<<"\n";
-                        data_array(i+1,j,k) += boundary_value;
-                        //amrex::Print()<<"value "<<data_array(i+1,j,k)<<"\n";
-                    }
-                    if (j==ny_fine_low) {
-                        //amrex::Print()<<"value Before "<<data_array(i,j-1,k)<<"\n";
-                        data_array(i,j-1,k) += boundary_value;
-                        //amrex::Print()<<"value "<<data_array(i,j-1,k)<<"\n";
-                    }
-                    if(j==ny_fine_high){
-                        //amrex::Print()<<"value Before "<<data_array(i,j+1,k)<<"\n";
-                        data_array(i,j+1,k) += boundary_value;
-                        //amrex::Print()<<"value "<<data_array(i,j+1,k)<<"\n";
-                    }
-                //amrex::Print()<<"Done\n";
+                    df_x*(x-x_left)/dx[0] + df_y*(y-y_down)/dx[1] +
+                    df_xy*(x-x_left)*(y-y_down)/(dx[0]*dx[1]) + val_left_down;
+                    //amrex::Print()<<"value Before "<<data_array(i-1,j,k)<<"\n";
+                    //amrex::Print()<<"Fine\n";
+                    data_array(i-1,j,k) += boundary_value;
+                    //amrex::Print()<<"value "<<data_array(i-1,j,k)<<"\n";
                 }
+                if(i==nx_fine_high){
+                    // Compute coordinate on fine grid
+                    const amrex::Real x = plo[0] + (i+1+0.5_rt)*dx[0];
+                    const amrex::Real y = plo[1] + (j+0.5_rt)*dx[1];
+                    // index left (in x) and below (in y) of the compute coordinate on coarse grid
+                    const int idx_left = i ;
+                    const int idx_down = j ;
+                    const amrex::Real x_left = plo_coarse[0]+(idx_left +0.5_rt)*dx_coarse[0];
+                    const amrex::Real y_down = plo_coarse[1]+(idx_down +0.5_rt)*dx_coarse[1];
+                    // Bilinear interpolation from coarse to fine grid
+                    const amrex::Real val_left_down  = data_array(idx_left-1  , idx_down-1  , 0);
+                    const amrex::Real val_left_up    = data_array(idx_left-1  , idx_down, 0);
+                    const amrex::Real val_right_up   = data_array(idx_left, idx_down, 0);
+                    const amrex::Real val_right_down = data_array(idx_left, idx_down-1  , 0);
+                    const amrex::Real df_x = val_right_down - val_left_down;
+                    const amrex::Real df_y = val_left_up - val_left_down;
+                    const amrex::Real df_xy = val_left_down + val_right_up - val_right_down
+                                            -val_left_up;
+                    const amrex::Real boundary_value =
+                    df_x*(x-x_left)/dx[0] + df_y*(y-y_down)/dx[1] +
+                    df_xy*(x-x_left)*(y-y_down)/(dx[0]*dx[1]) + val_left_down;
+                    //amrex::Print()<<"value Before "<<data_array(i+1,j,k)<<"\n";
+                    //amrex::Print()<<"Fine2 \n";
+                    data_array(i+1,j,k) += boundary_value;
+                    //amrex::Print()<<"value "<<data_array(i+1,j,k)<<"\n";
+                }
+                if (j==ny_fine_low) {
+                    // Compute coordinate on fine grid
+                    const amrex::Real x = plo[0] + (i+0.5_rt)*dx[0];
+                    const amrex::Real y = plo[1] + (j-1+0.5_rt)*dx[1];
+                    // index left (in x) and below (in y) of the compute coordinate on coarse grid
+                    const int idx_left = i ;
+                    const int idx_down = j ;
+                    const amrex::Real x_left = plo_coarse[0]+(idx_left +0.5_rt)*dx_coarse[0];
+                    const amrex::Real y_down = plo_coarse[1]+(idx_down +0.5_rt)*dx_coarse[1];
+                    // Bilinear interpolation from coarse to fine grid
+                    const amrex::Real val_left_down  = data_array(idx_left  , idx_down  , 0);
+                    const amrex::Real val_left_up    = data_array(idx_left  , idx_down+1, 0);
+                    const amrex::Real val_right_up   = data_array(idx_left+1, idx_down+1, 0);
+                    const amrex::Real val_right_down = data_array(idx_left+1, idx_down  , 0);
+                    const amrex::Real df_x = val_right_down - val_left_down;
+                    const amrex::Real df_y = val_left_up - val_left_down;
+                    const amrex::Real df_xy = val_left_down + val_right_up - val_right_down
+                                            -val_left_up;
+                    const amrex::Real boundary_value =
+                    df_x*(x-x_left)/dx[0] + df_y*(y-y_down)/dx[1] +
+                    df_xy*(x-x_left)*(y-y_down)/(dx[0]*dx[1]) + val_left_down;
+                    //amrex::Print()<<"value Before "<<data_array(i,j-1,k)<<"\n";
+                    //amrex::Print()<<"Fine3 \n";
+                    data_array(i,j-1,k) += boundary_value;
+                    //amrex::Print()<<"value "<<data_array(i,j-1,k)<<"\n";
+                }
+                if(j==ny_fine_high){
+                    // Compute coordinate on fine grid
+                    const amrex::Real x = plo[0] + (i+0.5_rt)*dx[0];
+                    const amrex::Real y = plo[1] + (j+1+0.5_rt)*dx[1];
+                    // index left (in x) and below (in y) of the compute coordinate on coarse grid
+                    const int idx_left = i ;
+                    const int idx_down = j ;
+                    const amrex::Real x_left = plo_coarse[0]+(idx_left +0.5_rt)*dx_coarse[0];
+                    const amrex::Real y_down = plo_coarse[1]+(idx_down +0.5_rt)*dx_coarse[1];
+                    // Bilinear interpolation from coarse to fine grid
+                    const amrex::Real val_left_down  = data_array(idx_left  , idx_down-1  , 0);
+                    const amrex::Real val_left_up    = data_array(idx_left  , idx_down, 0);
+                    const amrex::Real val_right_up   = data_array(idx_left+1, idx_down, 0);
+                    const amrex::Real val_right_down = data_array(idx_left-1, idx_down-1  , 0);
+                    const amrex::Real df_x = val_right_down - val_left_down;
+                    const amrex::Real df_y = val_left_up - val_left_down;
+                    const amrex::Real df_xy = val_left_down + val_right_up - val_right_down
+                                            -val_left_up;
+                    const amrex::Real boundary_value =
+                    df_x*(x-x_left)/dx[0] + df_y*(y-y_down)/dx[1] +
+                    df_xy*(x-x_left)*(y-y_down)/(dx[0]*dx[1]) + val_left_down;
+                    //amrex::Print()<<"value Before "<<data_array(i,j+1,k)<<"\n";
+                    //amrex::Print()<<"Fine4 \n";
+                    data_array(i,j+1,k) += boundary_value;
+                    //amrex::Print()<<"value "<<data_array(i,j+1,k)<<"\n";
+                }
+                //amrex::Print()<<"Done\n";
+               
             });
     }
 }
@@ -428,7 +490,8 @@ Fields::SolvePoissonExmByAndEypBx (amrex::Vector<amrex::Geometry> const& geom,
     amrex::ParallelContext::push(m_comm_xy);
     lhs.FillBoundary(geom[lev].periodicity());
     amrex::ParallelContext::pop();
-
+    /*-------------Fill Guard Cells----------------------*/
+    InterpolateGuardCells(geom, lev, "Psi");
     /* Compute ExmBy and Eypbx from grad(-psi) */
     TransverseDerivative(
         getSlices(lev, WhichSlice::This),
